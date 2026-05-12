@@ -15,6 +15,10 @@ export interface Room {
   color: string | null
 }
 
+interface RoomsResponse {
+  rooms: Room[]
+}
+
 export interface PingResponse {
   ok: true
   account_id: number
@@ -59,7 +63,8 @@ export class CueProxApi {
   }
 
   async getRooms(): Promise<Room[]> {
-    return this.request<Room[]>('/api/v1/rooms')
+    const data = await this.request<RoomsResponse>('/api/v1/rooms')
+    return data.rooms ?? []
   }
 
   // --- M2/M3: session control, cue navigation, alerts ---
