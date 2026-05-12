@@ -112,28 +112,28 @@ export class CueProxSocket extends EventEmitter {
     })
 
     socket.on('session_state', (payload: LiveSessionState) => {
-      this.logger('debug', `CueProxSocket: received session_state — activeCueId=${payload?.activeCueId ?? 'null'}`)
+      this.logger('info', `CueProxSocket: received session_state — activeCueId=${payload?.activeCueId ?? 'null'}`)
       this.activeCueId = payload?.activeCueId ?? null
       this.emit('session_state', payload)
     })
 
     socket.on('director_alert', (payload: LiveAlertPayload) => {
-      this.logger('debug', `CueProxSocket: received director_alert — id=${payload?.id} text="${payload?.text}"`)
+      this.logger('info', `CueProxSocket: received director_alert — id=${payload?.id} text="${payload?.text}"`)
       this.emit('director_alert', payload)
     })
 
     socket.on('director_alert_clear', (payload: unknown) => {
-      this.logger('debug', `CueProxSocket: received director_alert_clear`)
+      this.logger('info', `CueProxSocket: received director_alert_clear`)
       this.emit('alert_cleared', payload)
     })
 
     socket.on('qa:updated', () => {
-      this.logger('debug', `CueProxSocket: received qa:updated`)
+      this.logger('info', `CueProxSocket: received qa:updated`)
       this.emit('qa_updated')
     })
 
     socket.on('cue_note_updated', (payload: { cueId: number; teamId: number }) => {
-      this.logger('debug', `CueProxSocket: received cue_note_updated — cueId=${payload?.cueId} teamId=${payload?.teamId}`)
+      this.logger('info', `CueProxSocket: received cue_note_updated — cueId=${payload?.cueId} teamId=${payload?.teamId}`)
       this.emit('cue_note_updated', payload)
     })
 
