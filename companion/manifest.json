@@ -18,12 +18,12 @@
   ],
   "bugs": "https://github.com/willemvds8/companion-module-cueprox/issues",
   "legacyIds": [],
-  "github": "https://github.com/willemvds8/companion-module-cueprox",
+  "repository": "https://github.com/willemvds8/companion-module-cueprox",
   "license": "MIT",
   "runtime": {
     "type": "node18",
     "api": "nodejs-ipc",
     "apiVersion": "1.0.0",
-    "entrypoint": "dist/index.js"
+    "entrypoint": "../dist/index.js"
   }
 }
