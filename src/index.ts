@@ -6,15 +6,11 @@ import {
 } from '@companion-module/base'
 import { type ModuleConfig, getConfigFields } from './config'
 import { ApiError, CueProxApi } from './api'
-
-// M1: HTTP-only connection (ping + room fetch).
-// Socket.io integration is deferred to M1.5 pending token-auth support on the CueProX server.
-// The main socket namespace (pages/api/socket.ts) only accepts session cookies (verifySessionCookie),
-// not Bearer tokens. Fix needed: add a socket middleware branch checking
-// socket.handshake.auth.token against the api_tokens table.
+import { CueProxSocket } from './socket-client'
 
 class ModuleInstance extends InstanceBase<ModuleConfig> {
   private api: CueProxApi | null = null
+  private socket: CueProxSocket | null = null
   private rooms: Array<{ id: number; label: string }> = []
   private savedConfig: ModuleConfig = { host: 'https://app.cueprox.com', token: '', roomId: 0 }
 
@@ -31,6 +27,8 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
   }
 
   async destroy(): Promise<void> {
+    this.socket?.disconnect()
+    this.socket = null
     this.api = null
     this.log('debug', 'Module destroyed')
   }
@@ -44,10 +42,15 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
   // ── Connection ─────────────────────────────────────────────────────────────
 
   private async setupConnection(): Promise<void> {
+    // Disconnect any existing socket before rebuilding clients.
+    if (this.socket) {
+      this.socket.disconnect()
+      this.socket = null
+    }
     this.api = null
     this.updateStatus(InstanceStatus.Connecting)
 
-    const { host, token } = this.savedConfig
+    const { host, token, roomId } = this.savedConfig
 
     if (!host || !token) {
       this.updateStatus(InstanceStatus.BadConfig, 'Host URL and API token are required')
@@ -85,8 +88,54 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
     }
 
     this.api = api
-    this.updateStatus(InstanceStatus.Ok)
     this.log('info', `Connected to ${host}`)
+
+    // Step 3 — Open Socket.io connection for real-time events
+    if (roomId > 0) {
+      const socket = new CueProxSocket({
+        host,
+        token,
+        roomId,
+        logger: this.log.bind(this),
+      })
+
+      socket.on('connected', () => {
+        this.updateStatus(InstanceStatus.Ok, 'Connected')
+      })
+      socket.on('disconnected', ({ reason }: { reason: string }) => {
+        this.updateStatus(InstanceStatus.Disconnected, `Disconnected: ${reason}`)
+      })
+      socket.on('reconnecting', () => {
+        this.updateStatus(InstanceStatus.Connecting, 'Reconnecting…')
+      })
+      socket.on('auth_failed', () => {
+        this.updateStatus(InstanceStatus.AuthenticationFailure, 'Invalid token')
+      })
+      socket.on('scope_denied', ({ message }: { message?: string }) => {
+        this.updateStatus(InstanceStatus.BadConfig, message ?? 'Token not authorized for this room')
+      })
+      socket.on('connection_error', () => {
+        this.updateStatus(InstanceStatus.UnknownError, 'Socket connection error')
+      })
+      // Real-time event handlers — M1-B only logs, no Companion vars/feedbacks yet
+      socket.on('session_state', (payload: { activeCueId?: number | null }) => {
+        this.log('debug', `session_state: activeCue=${payload?.activeCueId ?? 'null'}`)
+      })
+      socket.on('director_alert', (payload: unknown) => {
+        this.log('debug', `director_alert: ${JSON.stringify(payload).slice(0, 200)}`)
+      })
+      socket.on('qa_updated', () => {
+        this.log('debug', 'qa_updated event received')
+      })
+      socket.on('cue_note_updated', (payload: { cueId?: number; teamId?: number }) => {
+        this.log('debug', `cue_note_updated: cueId=${payload?.cueId}, teamId=${payload?.teamId}`)
+      })
+
+      this.socket = socket
+      socket.connect()
+    } else {
+      this.updateStatus(InstanceStatus.Ok, 'Select a room in config to enable live updates')
+    }
   }
 }
 
