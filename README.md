@@ -10,6 +10,10 @@ Bitfocus Companion module for **CueProX** — control shows, cues, alerts, and Q
 - Pushes and clears director alerts to team output screens
 - Exposes session and broadcast state as Companion variables and feedbacks
 
+### Real-time updates
+
+Once a room is selected, the module opens a Socket.io connection to CueProX and subscribes to live events: `session_state` (active cue, timer), `director_alert` (alert pushed/cleared), and `qa:updated` (Q&A state changes). These power feedbacks and variables added in M2/M3.
+
 ## Documentation
 
 Full CueProX API and integration documentation: <https://docs.cueprox.com> _(placeholder — docs site coming soon)_

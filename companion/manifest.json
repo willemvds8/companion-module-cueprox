@@ -2,17 +2,28 @@
   "id": "cueprox",
   "name": "CueProX",
   "shortname": "CueProX",
+  "manufacturer": "Willem van der Sluijs",
+  "products": ["CueProX"],
   "category": "Production",
   "version": "0.1.0",
   "description": "Control CueProX shows, cues, alerts and Q&A from Companion. Forwards broadcast software state (OBS / vMix / etc.) into CueProX.",
-  "author": "Willem van der Sluijs",
-  "github": "https://github.com/willemvds8/companion-module-cueprox",
   "keywords": ["cueprox", "cues", "show", "rundown", "live production", "church", "theater"],
+  "author": "Willem van der Sluijs",
+  "maintainers": [
+    {
+      "name": "Willem van der Sluijs",
+      "email": "willemvdsluijs92@gmail.com",
+      "github": "willemvds8"
+    }
+  ],
+  "bugs": "https://github.com/willemvds8/companion-module-cueprox/issues",
+  "legacyIds": [],
+  "repository": "https://github.com/willemvds8/companion-module-cueprox",
   "license": "MIT",
   "runtime": {
     "type": "node18",
     "api": "nodejs-ipc",
     "apiVersion": "1.0.0",
-    "entrypoint": "dist/index.js"
+    "entrypoint": "../dist/index.js"
   }
 }
