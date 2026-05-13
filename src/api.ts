@@ -19,6 +19,17 @@ interface RoomsResponse {
   rooms: Room[]
 }
 
+export interface Show {
+  id: number
+  name: string
+  position: number
+  event_id: number
+}
+
+interface ShowsResponse {
+  shows: Show[]
+}
+
 export interface Alert {
   id: number
   text: string
@@ -114,6 +125,11 @@ export class CueProxApi {
 
   async closeQa(roomId: number): Promise<{ ok: true }> {
     return this.request(`/api/v1/rooms/${roomId}/qa/close`, { method: 'POST', body: '{}' })
+  }
+
+  async getShows(roomId: number): Promise<Show[]> {
+    const data = await this.request<ShowsResponse>(`/api/v1/rooms/${roomId}/shows`)
+    return data.shows ?? []
   }
 
   async getAlerts(roomId: number): Promise<Alert[]> {

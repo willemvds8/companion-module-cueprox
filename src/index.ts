@@ -44,17 +44,28 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
   private async initActions(): Promise<void> {
     const { roomId } = this.savedConfig
 
-    // Fetch alert choices for the alert_push dropdown at registration time.
-    // initActions() is called on every (re)connect so the list stays fresh
-    // whenever the user reconfigures the module. Falls back to empty on error.
+    // Fetch shows + alerts for dropdowns at registration time.
+    // initActions() is called on every (re)connect so lists stay fresh.
+    let showChoices: Array<{ id: number | string; label: string }> = []
     let alertChoices: Array<{ id: number | string; label: string }> = []
     if (this.api && roomId > 0) {
-      try {
-        const alerts = await this.api.getAlerts(roomId)
-        alertChoices = alerts.map((a) => ({ id: a.id, label: a.text }))
-      } catch (err) {
-        this.log('warn', `Could not fetch alerts for dropdown: ${err instanceof Error ? err.message : String(err)}`)
+      const [showsResult, alertsResult] = await Promise.allSettled([
+        this.api.getShows(roomId),
+        this.api.getAlerts(roomId),
+      ])
+      if (showsResult.status === 'fulfilled') {
+        showChoices = showsResult.value.map((s) => ({ id: s.id, label: s.name }))
+      } else {
+        this.log('warn', `Could not fetch shows for dropdown: ${showsResult.reason instanceof Error ? showsResult.reason.message : String(showsResult.reason)}`)
       }
+      if (alertsResult.status === 'fulfilled') {
+        alertChoices = alertsResult.value.map((a) => ({ id: a.id, label: a.text }))
+      } else {
+        this.log('warn', `Could not fetch alerts for dropdown: ${alertsResult.reason instanceof Error ? alertsResult.reason.message : String(alertsResult.reason)}`)
+      }
+    }
+    if (showChoices.length === 0) {
+      showChoices = [{ id: 0, label: '(no active event — start an event first)' }]
     }
     if (alertChoices.length === 0) {
       alertChoices = [{ id: 0, label: 'No alerts found — re-open config to refresh' }]
@@ -102,18 +113,20 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
         name: 'Start session',
         options: [
           {
-            type: 'number',
+            type: 'dropdown',
             id: 'show_id',
-            label: 'Show ID',
-            min: 1,
-            max: 999999,
-            default: 1,
-            required: true,
+            label: 'Show',
+            choices: showChoices,
+            default: showChoices[0]?.id ?? 0,
           },
         ],
         callback: async (action) => {
           if (!guard()) return
           const showId = Number(action.options.show_id)
+          if (showId === 0) {
+            this.log('warn', 'No show selected')
+            return
+          }
           await run('session_start', () => this.api!.startSession(this.savedConfig.roomId, showId))
         },
       },
