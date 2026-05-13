@@ -19,6 +19,31 @@ interface RoomsResponse {
   rooms: Room[]
 }
 
+export interface Show {
+  id: number
+  name: string
+  position: number
+  event_id: number
+}
+
+interface ShowsResponse {
+  shows: Show[]
+}
+
+export interface Alert {
+  id: number
+  text: string
+  team_slugs: string[] | 'all'
+  type: string
+  created_at: string
+  is_live: boolean
+}
+
+interface AlertsResponse {
+  alerts: Alert[]
+  live_alert_ids: number[]
+}
+
 export interface PingResponse {
   ok: true
   account_id: number
@@ -67,15 +92,56 @@ export class CueProxApi {
     return data.rooms ?? []
   }
 
-  // --- M2/M3: session control, cue navigation, alerts ---
-  // async startSession(roomId: number, showId: number): Promise<{ ok: true; session_id: number; show_id: number }>
-  // async endSession(roomId: number): Promise<{ ok: true; ended_session_id: number | null }>
-  // async pauseSession(roomId: number): Promise<{ ok: true }>
-  // async resumeSession(roomId: number): Promise<{ ok: true }>
-  // async nextCue(roomId: number): Promise<{ ok: true }>
-  // async previousCue(roomId: number): Promise<{ ok: true }>
-  // async getAlertDrafts(roomId: number): Promise<unknown[]>
-  // async pushAlert(roomId: number, alertId: number): Promise<{ ok: true }>
-  // async flashAlert(roomId: number, text: string, teamSlugs: string[] | 'all'): Promise<{ ok: true }>
-  // async clearAlert(roomId: number, teamSlugs: string[] | 'all'): Promise<{ ok: true }>
+  async nextCue(roomId: number): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/cues/next`, { method: 'POST', body: '{}' })
+  }
+
+  async previousCue(roomId: number): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/cues/previous`, { method: 'POST', body: '{}' })
+  }
+
+  async startSession(roomId: number, showId: number): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/session/start`, {
+      method: 'POST',
+      body: JSON.stringify({ show_id: showId }),
+    })
+  }
+
+  async endSession(roomId: number): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/session/end`, { method: 'POST', body: '{}' })
+  }
+
+  async pauseSession(roomId: number): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/session/pause`, { method: 'POST', body: '{}' })
+  }
+
+  async resumeSession(roomId: number): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/session/resume`, { method: 'POST', body: '{}' })
+  }
+
+  async openQa(roomId: number): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/qa/open`, { method: 'POST', body: '{}' })
+  }
+
+  async closeQa(roomId: number): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/qa/close`, { method: 'POST', body: '{}' })
+  }
+
+  async getShows(roomId: number): Promise<Show[]> {
+    const data = await this.request<ShowsResponse>(`/api/v1/rooms/${roomId}/shows`)
+    return data.shows ?? []
+  }
+
+  async getAlerts(roomId: number): Promise<Alert[]> {
+    const data = await this.request<AlertsResponse>(`/api/v1/rooms/${roomId}/alerts`)
+    return data.alerts ?? []
+  }
+
+  async pushAlert(roomId: number, alertId: number): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/alerts/${alertId}/push`, { method: 'POST', body: '{}' })
+  }
+
+  async clearAlert(roomId: number): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/alerts/clear`, { method: 'POST', body: '{}' })
+  }
 }
