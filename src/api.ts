@@ -182,4 +182,14 @@ export class CueProxApi {
   async clearAlert(roomId: number): Promise<{ ok: true }> {
     return this.request(`/api/v1/rooms/${roomId}/alerts/clear`, { method: 'POST', body: '{}' })
   }
+
+  async updateBroadcastState(
+    roomId: number,
+    payload: { streaming: boolean; recording: boolean; scene: string | null; source: string },
+  ): Promise<{ ok: true }> {
+    return this.request(`/api/v1/rooms/${roomId}/integrations/broadcast/state`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
 }
