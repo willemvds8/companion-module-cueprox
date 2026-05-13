@@ -5,15 +5,16 @@ import type { LogLevel } from '@companion-module/base'
 export type SocketState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'scope_denied'
 
 export interface LiveSessionState {
+  sessionId: number | null
+  showId: number | null
   activeCueId: number | null
+  timerStartedAt: number | null
+  timerPausedAt: number | null
+  timerPauseOffsetMs: number
+  isRunning: boolean
+  sessionStartedAtMs: number | null
   liveAlertIds: number[]
   liveAlerts: unknown[]
-  timer: {
-    startedAt: number | null
-    pausedAt: number | null
-    pauseOffsetMs: number
-  } | null
-  qa: { qa_open_override: 0 | 1 | null } | null
 }
 
 export interface LiveAlertPayload {

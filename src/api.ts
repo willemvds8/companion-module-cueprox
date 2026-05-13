@@ -19,6 +19,38 @@ interface RoomsResponse {
   rooms: Room[]
 }
 
+export interface RoomStateCue {
+  id: number
+  title: string
+  duration_ms: number
+  show_id: number | null
+  show_name: string | null
+}
+
+export interface ApiRoomState {
+  room_id: number
+  event: { id: number; name: string; is_active: boolean; is_paused: boolean } | null
+  session: {
+    session_id: number
+    show_id: number | null
+    active_cue_id: number | null
+    timer_started_at: number | null
+    timer_paused_at: number | null
+    timer_pause_offset_ms: number
+    is_running: boolean
+  } | null
+  cue: { current: RoomStateCue | null; next: RoomStateCue | null }
+  qa: { qa_open_override: number | null }
+  broadcast: {
+    streaming: boolean
+    recording: boolean
+    scene: string | null
+    source: string | null
+    last_seen_at: string | null
+    online: boolean
+  } | null
+}
+
 export interface Show {
   id: number
   name: string
@@ -90,6 +122,10 @@ export class CueProxApi {
   async getRooms(): Promise<Room[]> {
     const data = await this.request<RoomsResponse>('/api/v1/rooms')
     return data.rooms ?? []
+  }
+
+  async getRoomState(roomId: number): Promise<ApiRoomState> {
+    return this.request<ApiRoomState>(`/api/v1/rooms/${roomId}/state`)
   }
 
   async nextCue(roomId: number): Promise<{ ok: true }> {
