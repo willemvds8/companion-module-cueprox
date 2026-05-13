@@ -244,6 +244,11 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
       alertChoices = [{ id: 0, label: 'No alerts found — re-open config to refresh' }]
     }
 
+    const broadcastRoomChoices: Array<{ id: number | string; label: string }> =
+      this.rooms.length > 0
+        ? this.rooms.map((r) => ({ id: r.id, label: r.label }))
+        : [{ id: 0, label: 'Configure connection first' }]
+
     const guard = (): boolean => {
       if (!this.api) {
         this.log('warn', 'CueProX not connected')
@@ -366,6 +371,73 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
         callback: async () => {
           if (!guard()) return
           await run('alert_clear', () => this.api!.clearAlert(this.savedConfig.roomId))
+        },
+      },
+      update_broadcast_state: {
+        name: 'Update broadcast state',
+        options: [
+          {
+            type: 'dropdown',
+            id: 'room_id',
+            label: 'Room',
+            choices: broadcastRoomChoices,
+            default: broadcastRoomChoices[0]?.id ?? 0,
+          },
+          {
+            type: 'checkbox',
+            id: 'streaming',
+            label: 'Streaming',
+            default: false,
+          },
+          {
+            type: 'checkbox',
+            id: 'recording',
+            label: 'Recording',
+            default: false,
+          },
+          {
+            type: 'textinput',
+            id: 'scene',
+            label: 'Scene (supports variables, e.g. $(obs:current_scene))',
+            default: '',
+            useVariables: true,
+          },
+          {
+            type: 'dropdown',
+            id: 'source',
+            label: 'Source',
+            choices: [
+              { id: 'obs',       label: 'OBS' },
+              { id: 'vmix',      label: 'vMix' },
+              { id: 'atem',      label: 'ATEM' },
+              { id: 'companion', label: 'Companion' },
+              { id: 'other',     label: 'Other' },
+            ],
+            default: 'companion',
+          },
+        ],
+        callback: async (action, context) => {
+          if (!this.api) {
+            this.log('warn', 'CueProX not connected')
+            return
+          }
+          const roomId = Number(action.options.room_id)
+          if (!(roomId > 0)) {
+            this.log('warn', 'No room selected for update_broadcast_state')
+            return
+          }
+          const streaming = Boolean(action.options.streaming)
+          const recording = Boolean(action.options.recording)
+          const rawScene  = String(action.options.scene ?? '')
+          const parsed    = await context.parseVariablesInString(rawScene)
+          const scene     = parsed.trim() !== '' ? parsed.trim() : null
+          const source    = String(action.options.source ?? 'companion')
+          try {
+            await this.api.updateBroadcastState(roomId, { streaming, recording, scene, source })
+            this.log('info', `Action update_broadcast_state executed (streaming=${streaming}, recording=${recording}, scene=${scene ?? 'null'}, source=${source})`)
+          } catch (err) {
+            this.log('error', `Action update_broadcast_state failed: ${err instanceof Error ? err.message : String(err)}`)
+          }
         },
       },
     })
