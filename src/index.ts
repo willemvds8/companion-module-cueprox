@@ -143,10 +143,10 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
 
     this.setVariableValues({
       current_cue_name:    this.moduleState.currentCueTitle,
-      current_cue_number:  '',
-      current_cue_type:    '',
+      current_cue_number:  state.cue.current?.position != null ? String(state.cue.current.position) : '',
+      current_cue_type:    state.cue.current?.type_slug ?? '',
       next_cue_name:       this.moduleState.nextCueTitle,
-      next_cue_number:     '',
+      next_cue_number:     state.cue.next?.position != null ? String(state.cue.next.position) : '',
       session_active:      this.moduleState.sessionActive     ? 'yes'  : 'no',
       qa_open:             this.moduleState.qaOpen            ? 'open' : 'closed',
       broadcast_streaming: this.moduleState.broadcastStreaming ? 'yes' : 'no',
