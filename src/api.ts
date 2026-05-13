@@ -23,6 +23,8 @@ export interface RoomStateCue {
   id: number
   title: string
   duration_ms: number
+  position: number
+  type_slug: string | null
   show_id: number | null
   show_name: string | null
 }
