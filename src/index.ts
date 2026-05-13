@@ -5,14 +5,30 @@ import {
   type SomeCompanionConfigField,
 } from '@companion-module/base'
 import { type ModuleConfig, getConfigFields } from './config'
-import { ApiError, CueProxApi } from './api'
-import { CueProxSocket } from './socket-client'
+import { ApiError, CueProxApi, type ApiRoomState } from './api'
+import { CueProxSocket, type LiveSessionState, type LiveAlertPayload } from './socket-client'
 
 class ModuleInstance extends InstanceBase<ModuleConfig> {
   private api: CueProxApi | null = null
   private socket: CueProxSocket | null = null
   private rooms: Array<{ id: number; label: string }> = []
   private savedConfig: ModuleConfig = { host: 'https://app.cueprox.com', token: '', roomId: 0 }
+  private timerInterval: ReturnType<typeof setInterval> | null = null
+  private moduleState = {
+    sessionActive:      false,
+    activeCueId:        null as number | null,
+    currentCueTitle:    '',
+    currentCueDurationMs: 0,
+    nextCueTitle:       '',
+    timerStartedAt:     null as number | null,
+    timerPausedAt:      null as number | null,
+    timerPauseOffsetMs: 0,
+    timerIsRunning:     false,
+    qaOpen:             false,
+    alertText:          '',
+    broadcastStreaming:  false,
+    broadcastRecording:  false,
+  }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -27,6 +43,7 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
   }
 
   async destroy(): Promise<void> {
+    this.stopTimerTicker()
     this.socket?.disconnect()
     this.socket = null
     this.api = null
@@ -39,7 +56,163 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
     return getConfigFields(this.rooms)
   }
 
-  // ── Actions ────────────────────────────────────────────────────────────────
+  // ── Variables & Feedbacks (M3) ─────────────────────────────────────────────
+
+  private initVariables(): void {
+    this.setVariableDefinitions([
+      { variableId: 'current_cue_name',    name: 'Current cue name' },
+      { variableId: 'current_cue_number',  name: 'Current cue number (position)' },
+      { variableId: 'current_cue_type',    name: 'Current cue type slug' },
+      { variableId: 'next_cue_name',       name: 'Next cue name' },
+      { variableId: 'next_cue_number',     name: 'Next cue number (position)' },
+      { variableId: 'cue_time_elapsed',    name: 'Cue time elapsed (mm:ss)' },
+      { variableId: 'cue_time_remaining',  name: 'Cue time remaining (mm:ss)' },
+      { variableId: 'active_alert_text',   name: 'Active alert text' },
+      { variableId: 'qa_open',             name: 'Q&A open state' },
+      { variableId: 'session_active',      name: 'Session active' },
+      { variableId: 'broadcast_streaming', name: 'Broadcast streaming' },
+      { variableId: 'broadcast_recording', name: 'Broadcast recording' },
+    ])
+    this.setVariableValues({
+      current_cue_name:    '',
+      current_cue_number:  '',
+      current_cue_type:    '',
+      next_cue_name:       '',
+      next_cue_number:     '',
+      cue_time_elapsed:    '00:00',
+      cue_time_remaining:  '--:--',
+      active_alert_text:   '',
+      qa_open:             'closed',
+      session_active:      'no',
+      broadcast_streaming: 'no',
+      broadcast_recording: 'no',
+    })
+  }
+
+  private initFeedbacks(): void {
+    this.setFeedbackDefinitions({
+      session_active: {
+        type: 'boolean',
+        name: 'Session is active',
+        description: 'True when a session is running in the configured room',
+        defaultStyle: { bgcolor: 0x00b894, color: 0xffffff },
+        options: [],
+        callback: () => this.moduleState.sessionActive,
+      },
+      qa_is_open: {
+        type: 'boolean',
+        name: 'Q&A is open',
+        description: 'True when Q&A is open in the configured room',
+        defaultStyle: { bgcolor: 0xf59e0b, color: 0xffffff },
+        options: [],
+        callback: () => this.moduleState.qaOpen,
+      },
+      alert_is_live: {
+        type: 'boolean',
+        name: 'Alert is live',
+        description: 'True when an alert is currently active',
+        defaultStyle: { bgcolor: 0xe74c3c, color: 0xffffff },
+        options: [],
+        callback: () => this.moduleState.alertText !== '',
+      },
+      broadcast_streaming: {
+        type: 'boolean',
+        name: 'Broadcast streaming',
+        description: 'True when broadcast source is streaming',
+        defaultStyle: { bgcolor: 0xe74c3c, color: 0xffffff },
+        options: [],
+        callback: () => this.moduleState.broadcastStreaming,
+      },
+    })
+  }
+
+  private applyRoomState(state: ApiRoomState): void {
+    const s = state.session
+    this.moduleState.sessionActive      = s !== null
+    this.moduleState.activeCueId        = s?.active_cue_id ?? null
+    this.moduleState.timerStartedAt     = s?.timer_started_at ?? null
+    this.moduleState.timerPausedAt      = s?.timer_paused_at ?? null
+    this.moduleState.timerPauseOffsetMs = s?.timer_pause_offset_ms ?? 0
+    this.moduleState.timerIsRunning     = s?.is_running ?? false
+    this.moduleState.currentCueTitle    = state.cue.current?.title ?? ''
+    this.moduleState.currentCueDurationMs = state.cue.current?.duration_ms ?? 0
+    this.moduleState.nextCueTitle       = state.cue.next?.title ?? ''
+    this.moduleState.qaOpen             = state.qa?.qa_open_override === 1
+    this.moduleState.broadcastStreaming  = state.broadcast?.streaming ?? false
+    this.moduleState.broadcastRecording  = state.broadcast?.recording ?? false
+
+    this.setVariableValues({
+      current_cue_name:    this.moduleState.currentCueTitle,
+      current_cue_number:  state.cue.current?.position != null ? String(state.cue.current.position) : '',
+      current_cue_type:    state.cue.current?.type_slug ?? '',
+      next_cue_name:       this.moduleState.nextCueTitle,
+      next_cue_number:     state.cue.next?.position != null ? String(state.cue.next.position) : '',
+      session_active:      this.moduleState.sessionActive     ? 'yes'  : 'no',
+      qa_open:             this.moduleState.qaOpen            ? 'open' : 'closed',
+      broadcast_streaming: this.moduleState.broadcastStreaming ? 'yes' : 'no',
+      broadcast_recording: this.moduleState.broadcastRecording ? 'yes' : 'no',
+    })
+    this.checkFeedbacks('session_active', 'qa_is_open', 'broadcast_streaming')
+
+    if (this.moduleState.sessionActive && this.moduleState.timerIsRunning) {
+      this.startTimerTicker()
+    } else {
+      this.stopTimerTicker()
+      this.updateTimerVariables()
+    }
+  }
+
+  private async refreshFromRoomState(): Promise<void> {
+    if (!this.api || !(this.savedConfig.roomId > 0)) return
+    try {
+      const state = await this.api.getRoomState(this.savedConfig.roomId)
+      this.applyRoomState(state)
+    } catch (err) {
+      this.log('warn', `Failed to refresh room state: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  private formatMmSs(ms: number): string {
+    const totalSec = Math.max(0, Math.floor(ms / 1000))
+    const m = Math.floor(totalSec / 60)
+    const s = totalSec % 60
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+
+  private computeElapsedMs(): number {
+    const { timerStartedAt, timerPausedAt, timerPauseOffsetMs } = this.moduleState
+    if (timerStartedAt === null) return 0
+    const ref = timerPausedAt !== null ? timerPausedAt : Date.now()
+    return Math.max(0, ref - timerStartedAt - timerPauseOffsetMs)
+  }
+
+  private updateTimerVariables(): void {
+    const { sessionActive, timerStartedAt, currentCueDurationMs } = this.moduleState
+    if (!sessionActive || timerStartedAt === null) {
+      this.setVariableValues({ cue_time_elapsed: '00:00', cue_time_remaining: '--:--' })
+      return
+    }
+    const elapsed = this.computeElapsedMs()
+    this.setVariableValues({
+      cue_time_elapsed:   this.formatMmSs(elapsed),
+      cue_time_remaining: currentCueDurationMs > 0
+        ? this.formatMmSs(Math.max(0, currentCueDurationMs - elapsed))
+        : '--:--',
+    })
+  }
+
+  private startTimerTicker(): void {
+    if (this.timerInterval !== null) return
+    this.timerInterval = setInterval(() => this.updateTimerVariables(), 1000)
+  }
+
+  private stopTimerTicker(): void {
+    if (this.timerInterval === null) return
+    clearInterval(this.timerInterval)
+    this.timerInterval = null
+  }
+
+  // ── Actions (M2) ───────────────────────────────────────────────────────────
 
   private async initActions(): Promise<void> {
     const { roomId } = this.savedConfig
@@ -249,10 +422,17 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
     this.api = api
     this.log('info', `Connected to ${host}`)
 
-    // Step 3 — Register actions now that the API client is ready
+    // Step 3 — Register variables, feedbacks, and actions
+    this.initVariables()
+    this.initFeedbacks()
     await this.initActions()
 
-    // Step 4 — Open Socket.io connection for real-time events
+    // Step 4 — Seed variables from REST state snapshot (needs roomId)
+    if (roomId > 0) {
+      await this.refreshFromRoomState()
+    }
+
+    // Step 5 — Open Socket.io connection for real-time events
     if (roomId > 0) {
       const socket = new CueProxSocket({
         host,
@@ -263,8 +443,12 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
 
       socket.on('connected', () => {
         this.updateStatus(InstanceStatus.Ok, 'Connected')
+        this.refreshFromRoomState().catch((err) =>
+          this.log('warn', `Post-connect state refresh failed: ${err instanceof Error ? err.message : String(err)}`),
+        )
       })
       socket.on('disconnected', ({ reason }: { reason: string }) => {
+        this.stopTimerTicker()
         this.updateStatus(InstanceStatus.Disconnected, `Disconnected: ${reason}`)
       })
       socket.on('reconnecting', () => {
@@ -279,16 +463,52 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
       socket.on('connection_error', () => {
         this.updateStatus(InstanceStatus.UnknownError, 'Socket connection error')
       })
-      // Real-time event handlers — M1-B only logs, no Companion vars/feedbacks yet
-      socket.on('session_state', (payload: { activeCueId?: number | null }) => {
-        this.log('debug', `session_state: activeCue=${payload?.activeCueId ?? 'null'}`)
+
+      // ── Real-time state updates (M3) ────────────────────────────────────────
+      socket.on('session_state', (payload: LiveSessionState) => {
+        const prevCueId = this.moduleState.activeCueId
+        this.moduleState.sessionActive      = payload.sessionId !== null
+        this.moduleState.activeCueId        = payload.activeCueId ?? null
+        this.moduleState.timerStartedAt     = payload.timerStartedAt ?? null
+        this.moduleState.timerPausedAt      = payload.timerPausedAt ?? null
+        this.moduleState.timerPauseOffsetMs = payload.timerPauseOffsetMs ?? 0
+        this.moduleState.timerIsRunning     = payload.isRunning ?? false
+
+        this.setVariableValues({ session_active: this.moduleState.sessionActive ? 'yes' : 'no' })
+        this.checkFeedbacks('session_active')
+
+        if (this.moduleState.sessionActive && this.moduleState.timerIsRunning) {
+          this.startTimerTicker()
+        } else {
+          this.stopTimerTicker()
+          this.updateTimerVariables()
+        }
+
+        if (payload.activeCueId !== prevCueId) {
+          this.refreshFromRoomState().catch((err) =>
+            this.log('warn', `Cue-change state refresh failed: ${err instanceof Error ? err.message : String(err)}`),
+          )
+        }
       })
-      socket.on('director_alert', (payload: unknown) => {
-        this.log('debug', `director_alert: ${JSON.stringify(payload).slice(0, 200)}`)
+
+      socket.on('director_alert', (payload: LiveAlertPayload) => {
+        this.moduleState.alertText = payload?.text ?? ''
+        this.setVariableValues({ active_alert_text: this.moduleState.alertText })
+        this.checkFeedbacks('alert_is_live')
       })
+
+      socket.on('alert_cleared', () => {
+        this.moduleState.alertText = ''
+        this.setVariableValues({ active_alert_text: '' })
+        this.checkFeedbacks('alert_is_live')
+      })
+
       socket.on('qa_updated', () => {
-        this.log('debug', 'qa_updated event received')
+        this.refreshFromRoomState().catch((err) =>
+          this.log('warn', `qa_updated state refresh failed: ${err instanceof Error ? err.message : String(err)}`),
+        )
       })
+
       socket.on('cue_note_updated', (payload: { cueId?: number; teamId?: number }) => {
         this.log('debug', `cue_note_updated: cueId=${payload?.cueId}, teamId=${payload?.teamId}`)
       })
