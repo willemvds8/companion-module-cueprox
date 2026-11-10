@@ -1,3 +1,4 @@
+import type {LiveAlert} from './state'
 import { EventEmitter } from 'events'
 import { io, Socket } from 'socket.io-client'
 import type { LogLevel } from '@companion-module/base'
@@ -14,7 +15,7 @@ export interface LiveSessionState {
   isRunning: boolean
   sessionStartedAtMs: number | null
   liveAlertIds: number[]
-  liveAlerts: unknown[]
+  liveAlerts: LiveAlert[]
 }
 
 export interface LiveAlertPayload {
@@ -127,6 +128,9 @@ export class CueProxSocket extends EventEmitter {
       this.logger('info', `CueProxSocket: received director_alert_clear`)
       this.emit('alert_cleared', payload)
     })
+
+    socket.on('broadcast:state',(payload:{streaming:boolean;recording:boolean})=>this.emit('broadcast_state',payload))
+    socket.on('event_cleared',()=>this.emit('event_cleared'))
 
     socket.on('qa:updated', () => {
       this.logger('info', `CueProxSocket: received qa:updated`)
