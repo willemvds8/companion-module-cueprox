@@ -1,3 +1,4 @@
+import {broadcastRequest,type LiveAlert} from './state'
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -42,7 +43,8 @@ export interface ApiRoomState {
     is_running: boolean
   } | null
   cue: { current: RoomStateCue | null; next: RoomStateCue | null }
-  qa: { qa_open_override: number | null }
+  qa: { qa_open_override: number | null;status?:'open'|'closed'|'no_event' }
+  live_alerts?:LiveAlert[]
   broadcast: {
     streaming: boolean
     recording: boolean
@@ -189,7 +191,7 @@ export class CueProxApi {
   ): Promise<{ ok: true }> {
     return this.request(`/api/v1/rooms/${roomId}/integrations/broadcast/state`, {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(broadcastRequest(payload)),
     })
   }
 }

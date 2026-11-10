@@ -1,12 +1,13 @@
 {
   "name": "companion-module-cueprox",
   "version": "0.1.0",
-  "description": "Bitfocus Companion module for CueProX — control shows, cues, alerts and Q&A",
+  "description": "Bitfocus Companion module for CueProX \u2014 control shows, cues, alerts and Q&A",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "test": "node --test tests/*.test.cjs"
   },
   "dependencies": {
     "@companion-module/base": "^1.14.1",

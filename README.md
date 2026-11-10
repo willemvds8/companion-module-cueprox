@@ -163,3 +163,13 @@ MIT — see [LICENSE](LICENSE).
 - Integration docs: [app.cueprox.com/docs/companion](https://app.cueprox.com/docs/companion) *(coming soon)*
 - Bitfocus Companion: [bitfocus.io/companion](https://bitfocus.io/companion)
 - GitHub: [github.com/willemvds8/companion-module-cueprox](https://github.com/willemvds8/companion-module-cueprox)
+
+## Compatibility repair (November 2026)
+
+The repair branch is based on current main. It keeps existing action IDs and supports the app's always-available event model: start/pause/resume/stop control show playback. Use Node 22 for module builds (`.nvmrc`); the app itself uses Node 24.
+
+The app supplies resolved Q&A status (including Auto) and a current alert snapshot. The module consumes live broadcast/reset events and sends scene changes using `current_scene`. Existing manual Q&A override remains a fallback with older app versions. For reliable Auto status and reconnect behavior, use the corresponding repaired app version. `active_alert_text` shows the most recently pushed remaining alert; clearing one alert does not clear other alerts.
+
+Validation: `npm ci`, `npm run build`, `npm run lint -- --max-warnings=0`, `npm test`, and `npm audit --omit=dev --audit-level=high`. CI uses Node 22. Compatible dependency updates resolve the production audit findings; the remaining development advisories are not fixed by forcing a major downgrade.
+
+These checks and a live socket-client protocol test do not replace acceptance in the real Companion application. Full testing of all actions, variables, feedbacks and an OBS setup is intentionally scheduled with the user later. No new public release is implied by this branch.

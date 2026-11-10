@@ -1,3 +1,4 @@
+import {activeAlertText,resolvedQaOpen,type LiveAlert} from './state'
 import {
   InstanceBase,
   InstanceStatus,
@@ -13,6 +14,7 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
   private socket: CueProxSocket | null = null
   private rooms: Array<{ id: number; label: string }> = []
   private savedConfig: ModuleConfig = { host: 'https://app.cueprox.com', token: '', roomId: 0 }
+  private refreshSequence=0
   private timerInterval: ReturnType<typeof setInterval> | null = null
   private moduleState = {
     sessionActive:      false,
@@ -26,6 +28,7 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
     timerIsRunning:     false,
     qaOpen:             false,
     alertText:          '',
+    liveAlerts:[] as LiveAlert[],
     broadcastStreaming:  false,
     broadcastRecording:  false,
   }
@@ -137,11 +140,14 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
     this.moduleState.currentCueTitle    = state.cue.current?.title ?? ''
     this.moduleState.currentCueDurationMs = state.cue.current?.duration_ms ?? 0
     this.moduleState.nextCueTitle       = state.cue.next?.title ?? ''
-    this.moduleState.qaOpen             = state.qa?.qa_open_override === 1
+    this.moduleState.liveAlerts=state.live_alerts??[]
+    this.moduleState.alertText=activeAlertText(this.moduleState.liveAlerts)
+    this.moduleState.qaOpen             = resolvedQaOpen(state.qa)
     this.moduleState.broadcastStreaming  = state.broadcast?.streaming ?? false
     this.moduleState.broadcastRecording  = state.broadcast?.recording ?? false
 
     this.setVariableValues({
+      active_alert_text:this.moduleState.alertText,
       current_cue_name:    this.moduleState.currentCueTitle,
       current_cue_number:  state.cue.current?.position != null ? String(state.cue.current.position) : '',
       current_cue_type:    state.cue.current?.type_slug ?? '',
@@ -152,7 +158,7 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
       broadcast_streaming: this.moduleState.broadcastStreaming ? 'yes' : 'no',
       broadcast_recording: this.moduleState.broadcastRecording ? 'yes' : 'no',
     })
-    this.checkFeedbacks('session_active', 'qa_is_open', 'broadcast_streaming')
+    this.checkFeedbacks('session_active', 'qa_is_open', 'broadcast_streaming','alert_is_live')
 
     if (this.moduleState.sessionActive && this.moduleState.timerIsRunning) {
       this.startTimerTicker()
@@ -165,8 +171,10 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
   private async refreshFromRoomState(): Promise<void> {
     if (!this.api || !(this.savedConfig.roomId > 0)) return
     try {
-      const state = await this.api.getRoomState(this.savedConfig.roomId)
-      this.applyRoomState(state)
+      const sequence=++this.refreshSequence
+      const api=this.api,roomId=this.savedConfig.roomId
+      const state=await api.getRoomState(roomId)
+      if(sequence===this.refreshSequence && api===this.api && roomId===this.savedConfig.roomId)this.applyRoomState(state)
     } catch (err) {
       this.log('warn', `Failed to refresh room state: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -238,7 +246,7 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
       }
     }
     if (showChoices.length === 0) {
-      showChoices = [{ id: 0, label: '(no active event — start an event first)' }]
+      showChoices = [{ id: 0, label: '(no shows found — create a show with cues)' }]
     }
     if (alertChoices.length === 0) {
       alertChoices = [{ id: 0, label: 'No alerts found — re-open config to refresh' }]
@@ -538,6 +546,7 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
 
       // ── Real-time state updates (M3) ────────────────────────────────────────
       socket.on('session_state', (payload: LiveSessionState) => {
+        this.refreshSequence++
         const prevCueId = this.moduleState.activeCueId
         this.moduleState.sessionActive      = payload.sessionId !== null
         this.moduleState.activeCueId        = payload.activeCueId ?? null
@@ -546,7 +555,10 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
         this.moduleState.timerPauseOffsetMs = payload.timerPauseOffsetMs ?? 0
         this.moduleState.timerIsRunning     = payload.isRunning ?? false
 
-        this.setVariableValues({ session_active: this.moduleState.sessionActive ? 'yes' : 'no' })
+        this.moduleState.liveAlerts=payload.liveAlerts??[]
+        this.moduleState.alertText=activeAlertText(this.moduleState.liveAlerts)
+        this.setVariableValues({session_active:this.moduleState.sessionActive?'yes':'no',active_alert_text:this.moduleState.alertText})
+        this.checkFeedbacks('alert_is_live')
         this.checkFeedbacks('session_active')
 
         if (this.moduleState.sessionActive && this.moduleState.timerIsRunning) {
@@ -563,16 +575,26 @@ class ModuleInstance extends InstanceBase<ModuleConfig> {
         }
       })
 
-      socket.on('director_alert', (payload: LiveAlertPayload) => {
-        this.moduleState.alertText = payload?.text ?? ''
-        this.setVariableValues({ active_alert_text: this.moduleState.alertText })
-        this.checkFeedbacks('alert_is_live')
+      socket.on('director_alert',(payload:LiveAlertPayload)=>{
+        if(payload.id===null)return
+        this.moduleState.liveAlerts=[...this.moduleState.liveAlerts.filter(alert=>alert.id!==payload.id),{id:payload.id,text:payload.text}]
+        this.moduleState.alertText=activeAlertText(this.moduleState.liveAlerts)
+        this.setVariableValues({active_alert_text:this.moduleState.alertText});this.checkFeedbacks('alert_is_live')
       })
-
-      socket.on('alert_cleared', () => {
-        this.moduleState.alertText = ''
-        this.setVariableValues({ active_alert_text: '' })
-        this.checkFeedbacks('alert_is_live')
+      socket.on('alert_cleared',(payload:{alertId?:number|null})=>{
+        this.moduleState.liveAlerts=payload?.alertId==null?[]:this.moduleState.liveAlerts.filter(alert=>alert.id!==payload.alertId)
+        this.moduleState.alertText=activeAlertText(this.moduleState.liveAlerts)
+        this.setVariableValues({active_alert_text:this.moduleState.alertText});this.checkFeedbacks('alert_is_live')
+      })
+      socket.on('broadcast_state',(payload:{streaming:boolean;recording:boolean})=>{
+        this.moduleState.broadcastStreaming=payload.streaming;this.moduleState.broadcastRecording=payload.recording
+        this.setVariableValues({broadcast_streaming:payload.streaming?'yes':'no',broadcast_recording:payload.recording?'yes':'no'})
+        this.checkFeedbacks('broadcast_streaming')
+      })
+      socket.on('event_cleared',()=>{
+        this.moduleState.liveAlerts=[];this.moduleState.alertText=''
+        this.setVariableValues({active_alert_text:''});this.checkFeedbacks('alert_is_live')
+        void this.refreshFromRoomState()
       })
 
       socket.on('qa_updated', () => {
